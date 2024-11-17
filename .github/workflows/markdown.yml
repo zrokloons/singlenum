@@ -1,0 +1,14 @@
+name: Markdown
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  mdlint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: DavidAnson/markdownlint-cli2-action@v17
+      with:
+        globs: '**/*.md'
