@@ -1,6 +1,6 @@
 use crate::utils::helpers::remove_element;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Column {
     pub _id: usize,
     pub _taken: Vec<usize>,

@@ -5,19 +5,21 @@ use crate::astructs::square::Square;
 use crate::utils::helpers;
 use anyhow::anyhow;
 use anyhow::Result as AnyhowResult;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 pub enum SetKind {
     NORMAL,
     GUESS,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SnapShots {
     snapshots: Vec<SnapShot>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SnapShot {
     square: Vec<Square>,
     line: Vec<Line>,
@@ -27,7 +29,7 @@ pub struct SnapShot {
     square_id: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Table {
     abox: Vec<ABox>,
     line: Vec<Line>,
@@ -36,6 +38,16 @@ pub struct Table {
     snapshots: Option<SnapShots>,
     max_attempts: i32,
     iteration: i32,
+    signatures: Vec<u64>,
+    signatures_duplicates: usize,
+    snapshot_rollbacks: usize,
+    test: Vec<Vec<usize>>,
+}
+
+impl Hash for Table {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.squares.hash(state);
+    }
 }
 
 impl Table {
@@ -140,12 +152,18 @@ impl Table {
             snapshots: None,
             max_attempts,
             iteration: 0,
+            signatures: Vec::new(),
+            test: Vec::new(),
+            snapshot_rollbacks: 0,
+            signatures_duplicates: 0,
         }
     }
 
     fn progress(&mut self) -> AnyhowResult<()> {
         self.iteration += 1;
         log::debug!("[iteration] {}", self.iteration);
+
+        self.hasher()?;
 
         let mut tmp: Vec<usize> = Vec::new();
 
@@ -204,6 +222,32 @@ impl Table {
     }
 
     /*
+     * Hash the table
+     *
+     *
+     */
+    fn hasher(&mut self) -> AnyhowResult<()> {
+        let mut s = DefaultHasher::new();
+        self.hash(&mut s);
+        let a = s.finish();
+
+        if self.signatures.contains(&a) {
+            self.signatures_duplicates += 1;
+        } else {
+            self.signatures.push(a);
+        }
+
+        if self.signatures_duplicates > self.snapshot_rollbacks {
+            panic!(
+                "Signature duplicates: {:?}, Snapshot rollbacks: {:?}!",
+                self.signatures_duplicates, self.snapshot_rollbacks
+            );
+        }
+
+        Ok(())
+    }
+
+    /*
      * Solve
      */
     pub fn solve(&mut self) -> AnyhowResult<&mut Self> {
@@ -212,8 +256,7 @@ impl Table {
         loop {
             self.progress()?;
 
-            // Update line, column, box, and finally squares. Then run Engine
-            // to set squares
+            // Update line, column, box, and finally squares. Then run Engine to set squares
             self.update()?;
             if self.engine()? {
                 continue;
@@ -272,6 +315,8 @@ impl Table {
         self.line = snapshot.line;
         self.column = snapshot.column;
         self.abox = snapshot.abox;
+
+        self.snapshot_rollbacks += 1;
         //self.draw();
 
         // We need to update the square used in snapshot to include the value
@@ -1014,4 +1059,316 @@ impl Table {
         }
         Ok(true)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /*
+     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
+     * ║ 8 │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ...
+     */
+    #[test]
+    fn test_01_engine_box_one_left() {
+        let configuration: Vec<usize> = [
+            8, 5, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 0, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
+            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
+            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
+        ]
+        .to_vec();
+        let mut table = Table::new(configuration, 1);
+        table._update_abox().unwrap();
+
+        let result = table._engine_box_one_left().unwrap();
+        assert_eq!(true, result);
+        assert_eq!(table.squares[18].value, 1_usize);
+    }
+
+    /*
+     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
+     * ║ 8 │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ...
+     *
+     */
+    #[test]
+    fn test_02_engine_box_one_left() {
+        let configuration: Vec<usize> = [
+            8, 5, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 1, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
+            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
+            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
+        ]
+        .to_vec();
+        let mut table = Table::new(configuration, 1);
+        table._update_abox().unwrap();
+
+        let result = table._engine_box_one_left().unwrap();
+        assert_eq!(false, result);
+    }
+
+    /*
+     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
+     * ║   │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │   │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 1 │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ...
+     *
+     */
+    #[test]
+    fn test_01_engine_line_one_left() {
+        let configuration: Vec<usize> = [
+            0, 5, 9, 6, 1, 2, 4, 3, 7, 0, 0, 3, 8, 5, 4, 1, 6, 9, 1, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
+            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
+            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
+        ]
+        .to_vec();
+        let mut table = Table::new(configuration, 1);
+        table._update_line().unwrap();
+
+        let result = table._engine_line_one_left().unwrap();
+        assert_eq!(true, result);
+        assert_eq!(table.squares[0].value, 8_usize);
+    }
+
+    /*
+     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
+     * ║   │   │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 1 │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ...
+     *
+     */
+    #[test]
+    fn test_02_engine_line_one_left() {
+        let configuration: Vec<usize> = [
+            0, 0, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 1, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
+            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
+            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
+        ]
+        .to_vec();
+        let mut table = Table::new(configuration, 1);
+        table._update_line().unwrap();
+
+        let result = table._engine_line_one_left().unwrap();
+        assert_eq!(false, result);
+    }
+
+    /*
+     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
+     * ║ 8 │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ║ 9 │ 8 │ 6 ║ 1 │ 4 │ 7 ║ 3 │ 5 │ 2 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 3 │ 7 │ 5 ║ 2 │ 6 │ 8 ║ 9 │ 1 │ 4 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 2 │ 4 │ 1 ║ 5 │ 9 │ 3 ║ 7 │ 8 │ 6 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ║ 4 │ 3 │ 2 ║ 9 │ 8 │ 1 ║ 6 │ 7 │ 5 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 6 │ 1 │ 7 ║ 4 │ 2 │ 5 ║ 8 │ 9 │ 3 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 5 │ 9 │ 8 ║ 7 │ 3 │ 6 ║ 2 │ 4 │ 1 ║
+     * ╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝
+     *
+     */
+    #[test]
+    fn test_01_engine_column_one_left() {
+        let configuration: Vec<usize> = [
+            8, 5, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 0, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
+            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
+            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
+        ]
+        .to_vec();
+        let mut table = Table::new(configuration, 1);
+        table._update_column().unwrap();
+
+        let result = table._engine_column_one_left().unwrap();
+        assert_eq!(true, result);
+        assert_eq!(table.squares[18].value, 1_usize);
+    }
+
+    /*
+     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
+     * ║   │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ║ 9 │ 8 │ 6 ║ 1 │ 4 │ 7 ║ 3 │ 5 │ 2 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 3 │ 7 │ 5 ║ 2 │ 6 │ 8 ║ 9 │ 1 │ 4 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 2 │ 4 │ 1 ║ 5 │ 9 │ 3 ║ 7 │ 8 │ 6 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ║ 4 │ 3 │ 2 ║ 9 │ 8 │ 1 ║ 6 │ 7 │ 5 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 6 │ 1 │ 7 ║ 4 │ 2 │ 5 ║ 8 │ 9 │ 3 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 5 │ 9 │ 8 ║ 7 │ 3 │ 6 ║ 2 │ 4 │ 1 ║
+     * ╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝
+     *
+     */
+    #[test]
+    fn test_02_engine_column_one_left() {
+        let configuration: Vec<usize> = [
+            0, 5, 9, 6, 1, 2, 4, 3, 7, 0, 2, 3, 8, 5, 4, 1, 6, 9, 0, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
+            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
+            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
+        ]
+        .to_vec();
+        let mut table = Table::new(configuration, 1);
+        table._update_column().unwrap();
+
+        let result = table._engine_column_one_left().unwrap();
+        assert_eq!(false, result);
+    }
+
+    /*
+     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
+     * ║ 8 │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 1 │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ║ 9 │ 8 │ 6 ║ 1 │ 4 │ 7 ║ 3 │ 5 │ 2 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 3 │ 7 │ 5 ║ 2 │   │ 8 ║ 9 │ 1 │ 4 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 2 │ 4 │ 1 ║ 5 │ 9 │ 3 ║ 7 │ 8 │ 6 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ║ 4 │ 3 │ 2 ║ 9 │ 8 │ 1 ║ 6 │ 7 │ 5 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 6 │ 1 │ 7 ║ 4 │ 2 │ 5 ║ 8 │ 9 │ 3 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 5 │ 9 │ 8 ║ 7 │ 3 │ 6 ║ 2 │ 4 │ 1 ║
+     * ╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝
+     *
+     */
+    #[test]
+    fn test_01_engine_only_one_possible() {
+        let configuration: Vec<usize> = [
+            8, 5, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 1, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
+            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 0, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
+            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
+        ]
+        .to_vec();
+        let mut table = Table::new(configuration, 1);
+        table.squares[40].potentials = [6].to_vec();
+
+        let result = table._engine_only_one_possible().unwrap();
+        assert_eq!(true, result);
+        assert_eq!(table.squares[40].value, 6_usize);
+    }
+
+    /*
+     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
+     * ║ 8 │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 1 │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ║ 9 │ 8 │ 6 ║ 1 │ 4 │ 7 ║ 3 │ 5 │ 2 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 3 │ 7 │ 5 ║   │   │ 8 ║ 9 │ 1 │ 4 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 2 │ 4 │ 1 ║ 5 │ 9 │ 3 ║ 7 │ 8 │ 6 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ║ 4 │ 3 │ 2 ║ 9 │ 8 │ 1 ║ 6 │ 7 │ 5 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 6 │ 1 │ 7 ║ 4 │ 2 │ 5 ║ 8 │ 9 │ 3 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 5 │ 9 │ 8 ║ 7 │ 3 │ 6 ║ 2 │ 4 │ 1 ║
+     * ╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝
+     *
+     */
+    #[test]
+    fn test_02_engine_only_one_possible() {
+        let configuration: Vec<usize> = [
+            8, 5, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 1, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
+            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 0, 0, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
+            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
+        ]
+        .to_vec();
+        let mut table = Table::new(configuration, 1);
+        table.squares[39].potentials = [6, 2].to_vec();
+        table.squares[40].potentials = [6, 2].to_vec();
+
+        let result = table._engine_only_one_possible().unwrap();
+        assert_eq!(false, result);
+    }
+
+    /*
+     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
+     * ║ 3 │   │   ║   │   │ 1 ║   │   │   ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │ 7 │ 1 ║ 9 │ 6 │   ║   │ 2 │ 4 ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │   │   ║ 5 │   │   ║   │   │ 1 ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ║   │ 2 │   ║ 8 │ 4 │   ║ 7 │   │   ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │   │   ║ 6 │   │ 9 ║   │   │   ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │   │ 5 ║   │ 1 │ 2 ║   │ 9 │   ║
+     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
+     * ║ 9 │   │   ║   │   │ 6 ║   │   │   ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║ 2 │ 6 │   ║   │ 9 │ 7 ║ 1 │ 5 │   ║
+     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
+     * ║   │   │   ║ 1 │   │   ║   │   │ 2 ║
+     * ╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝
+     *
+     *  ID: 27 potentials: [6, 1]
+     *  ID: 28 potentials: []
+     *  ID: 29 potentials: [3, 6, 9]
+     *  ID: 36 potentials: [8, 1, 4, 7]
+     *  ID: 37 potentials: [1, 3, 8, 4]
+     *  ID: 38 potentials: [3, 4, 7, 8]
+     *  ID: 45 potentials: [8, 6, 4, 7]
+     *  ID: 46 potentials: [8, 3, 4]
+     *  ID: 47 potentials: []
+     *
+     *  In this case it's only square 29 that have a potential for number 9
+     *
+     */
+    #[test]
+    fn test_01__engine_box() {
+        let configuration: Vec<usize> = [
+            3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 7, 1, 9, 6, 0, 0, 2, 4, 0, 0, 0, 5, 0, 0, 0, 0, 1, 0, 2,
+            0, 8, 4, 0, 7, 0, 0, 0, 0, 0, 6, 0, 9, 0, 0, 0, 0, 0, 5, 0, 1, 2, 0, 9, 0, 9, 0, 0, 0,
+            0, 6, 0, 0, 0, 2, 6, 0, 0, 9, 7, 1, 5, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2,
+        ]
+        .to_vec();
+        let mut table = Table::new(configuration, 1);
+
+        table.update().unwrap();
+        let result = table._engine_box().unwrap();
+        assert_eq!(true, result);
+        assert_eq!(table.squares[29].value, 9_usize);
+    }
+    // _engine_box_remove_potentials
 }

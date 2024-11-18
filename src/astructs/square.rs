@@ -1,7 +1,8 @@
 use log;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Square {
     pub id: usize,
     pub value: usize,
@@ -13,6 +14,12 @@ pub struct Square {
     pub line_id: usize,
     pub column_id: usize,
     pub history: Vec<usize>,
+}
+
+impl Hash for Square {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.value.hash(state);
+    }
 }
 
 impl fmt::Display for Square {
