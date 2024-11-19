@@ -14,9 +14,28 @@ pub struct Column {
     pub _6: usize,
     pub _7: usize,
     pub _8: usize,
+    pub _squares: Vec<usize>,
 }
 
 impl Column {
+    pub fn new(id: usize, square_ids: Vec<usize>) -> Column {
+        Column {
+            _id: id,
+            _taken: Vec::new(),
+            _remaining: Vec::new(),
+            _0: square_ids[0],
+            _1: square_ids[1],
+            _2: square_ids[2],
+            _3: square_ids[3],
+            _4: square_ids[4],
+            _5: square_ids[5],
+            _6: square_ids[6],
+            _7: square_ids[7],
+            _8: square_ids[8],
+            _squares: square_ids,
+        }
+    }
+
     pub fn get_square_ids(&self) -> Vec<usize> {
         let mut result: Vec<usize> = Vec::new();
         for l in self {
