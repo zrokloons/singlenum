@@ -25,25 +25,69 @@
  *
  */
 
+use anyhow::Result as AnyhowResult;
+use camino::Utf8PathBuf;
 use clap::Parser;
-use singlenum::args::Args;
-use singlenum::astructs::table;
+use singlenum::args::Arguments;
+use singlenum::components::table;
+use singlenum::components::table::draw::draw_table;
+use singlenum::enums::Progress;
 use std::fs::File;
 use std::io::BufReader;
 
-fn main() {
+fn main() -> AnyhowResult<()> {
     env_logger::init();
-    let args: Args = Args::parse();
+    let args: Arguments = Arguments::parse();
 
-    if !args.file.exists() {
-        println!("File: {:?} does not exist!", args.file);
+    if !args.group.file.exists() {
+        println!("File: {:?} does not exist!", args.group.file);
+    } else {
+        runner(args.group.file, args.attempts)?;
     }
+    Ok(())
+}
 
-    let file = File::open(args.file).unwrap();
+fn runner(puzzle: Utf8PathBuf, attempts: i32) -> AnyhowResult<()> {
+    let file = File::open(puzzle)?;
     let reader = BufReader::new(file);
-    let puzzle: Vec<usize> = serde_json::from_reader(reader).unwrap();
+    let puzzle: Vec<usize> = serde_json::from_reader(reader)?;
 
-    let mut table = table::Table::new(puzzle, args.attempts);
-    table.solve().unwrap();
-    table.draw();
+    let mut table = table::core::Table::new(puzzle, attempts);
+    draw_table(&table);
+
+    loop {
+        match table.complete() {
+            Progress::Solved(msg) => {
+                solved(&table, &msg);
+                break;
+            }
+            Progress::LimitReached(msg) => {
+                limit_reached(&table, &msg);
+                break;
+            }
+            Progress::InProgress(iteration) => log::debug!("[iteration] {iteration}"),
+        };
+
+        // Update line, column, box, and finally squares. Then run Engine to set squares
+        table.update()?;
+        if table.engine()? {
+            continue;
+        }
+
+        // Guess, first a qualified guess, then a somewhat less qualified (incompetent)
+        if !table.qualified_guess()? && !table.incompetent_guess()? {
+            table.snapshot_rollback()?
+        }
+    }
+    Ok(())
+}
+
+fn solved(table: &table::core::Table, _msg: &str) {
+    draw_table(table);
+    println!("Puzzle solved")
+}
+
+fn limit_reached(table: &table::core::Table, _msg: &str) {
+    draw_table(table);
+    println!("Unable to solve puzzle!")
 }

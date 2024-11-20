@@ -1,29 +1,13 @@
-/*
- * TODO
- *  - Multiple sets on line,column,box when it cannot fail
- *
- */
-use crate::astructs::abox::ABox;
-use crate::astructs::column::Column;
-use crate::astructs::line::Line;
-use crate::astructs::square::Square;
+use crate::components::abox::ABox;
+use crate::components::column::Column;
+use crate::components::line::Line;
+use crate::components::square::Square;
+use crate::enums::{Container, Progress, SetKind};
 use crate::utils::helpers;
 use anyhow::anyhow;
 use anyhow::Result as AnyhowResult;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-
-enum Container {
-    ABOX,
-    LINE,
-    COLUMN,
-}
-
-pub enum SetKind {
-    NORMAL,
-    GUESS,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapShot {
@@ -49,16 +33,12 @@ pub struct Table {
     abox: Vec<ABox>,
     line: Vec<Line>,
     column: Vec<Column>,
-    squares: Vec<Square>,
+    pub squares: Vec<Square>,
     snapshots: Vec<SnapShot>,
     max_attempts: i32,
     iteration: i32,
-    signatures: Vec<u64>,
-    signatures_duplicates: usize,
     snapshots_taken: usize,
     snapshot_rollbacks: usize,
-    test: Vec<Vec<usize>>,
-    square_history: Vec<(usize, usize)>,
 }
 
 impl Hash for Table {
@@ -103,26 +83,27 @@ impl Table {
                 line_id: index / 9,
                 column_id: index % 9,
                 history: Vec::new(),
-                age: 0,
             };
 
             s.push(t);
+            let apa: Vec<usize> = (0..=8).collect();
 
             match index {
                 8 | 17 | 26 | 35 | 44 | 53 | 62 | 71 | 80 => l.push(Line::new(
                     index / 9,
-                    [
-                        index - 8,
-                        index - 7,
-                        index - 6,
-                        index - 5,
-                        index - 4,
-                        index - 3,
-                        index - 2,
-                        index - 1,
-                        index,
-                    ]
-                    .to_vec(),
+                    apa.iter().map(|x| index - x).collect(),
+                    //[
+                    //    index - 8,
+                    //    index - 7,
+                    //    index - 6,
+                    //    index - 5,
+                    //    index - 4,
+                    //    index - 3,
+                    //    index - 2,
+                    //    index - 1,
+                    //    index,
+                    //]
+                    //.to_vec(),
                 )),
                 _ => (),
             }
@@ -171,152 +152,31 @@ impl Table {
             column: c,
             squares: s,
             snapshots: Vec::new(),
-            //snapshots: HashMap::new(),
-            //snapshot_history: Vec::new(),
             snapshots_taken: 0,
             max_attempts,
             iteration: 0,
-            signatures: Vec::new(),
-            test: Vec::new(),
             snapshot_rollbacks: 0,
-            signatures_duplicates: 0,
-            square_history: Vec::new(),
         }
-    }
-
-    fn progress(&mut self) -> AnyhowResult<()> {
-        //self.draw();
-        //self.debug_table();
-        self.iteration += 1;
-        log::debug!("[iteration] {}", self.iteration);
-
-        // Below method call, could be of use in troubleshooting
-        //if std::env::var("RUST_LOG").unwrap_or("NONE".to_string()) == "debug" {
-        //    self.hasher()?;
-        //}
-
-        let mut tmp: Vec<usize> = Vec::new();
-
-        let mut progress: i32 = 0;
-        for square in &self.squares {
-            if square.value != 0 {
-                progress += 1;
-            } else {
-                tmp.push(square.id);
-            }
-        }
-
-        /*
-         * Puzzle finished
-         */
-        if progress == 81 {
-            self.draw();
-            if self.validate()? {
-                println!(
-                    "Success !! Puzzle finished in {} iterations, snapshots taken: {}, rollbacks: {}",
-                    self.iteration,
-                    self.snapshots_taken,
-                    self.snapshot_rollbacks
-                );
-                std::process::exit(0);
-            }
-            log::error!(
-                "Failure !! Unable to finish in {} iterations",
-                self.iteration
-            );
-            std::process::exit(1);
-        }
-
-        /*
-         * Max attempts reached
-         */
-        if self.iteration == self.max_attempts {
-            log::error!(
-                "{progress}/81 - Failed to solve puzzle {} Iterations",
-                self.iteration
-            );
-            self.draw();
-            log::warn!("{:?}", self.square_history);
-            std::process::exit(1);
-        }
-        Ok(())
     }
 
     /*
-     * Hash the table
-     *
-     *
+     * Puzzle finished
      */
-    fn hasher(&mut self) -> AnyhowResult<()> {
-        let mut s = DefaultHasher::new();
-        self.hash(&mut s);
-        let a = s.finish();
+    pub fn complete(&mut self) -> Progress {
+        let progress: &usize = &self.squares.iter().filter(|x| x.value != 0).count();
 
-        if self.signatures.contains(&a) {
-            self.signatures_duplicates += 1;
-        } else {
-            self.signatures.push(a);
-        }
-
-        if self.signatures_duplicates > self.snapshot_rollbacks {
-            log::error!(
-                "Signature duplicates: {:?}, Snapshot rollbacks: {:?}!",
-                self.signatures_duplicates,
-                self.snapshot_rollbacks
-            );
-        }
-
-        Ok(())
-    }
-
-    /*
-     * Solve
-     */
-    pub fn solve(&mut self) -> AnyhowResult<&mut Self> {
-        self.draw();
-
-        loop {
-            self.progress()?;
-
-            // Update line, column, box, and finally squares. Then run Engine to set squares
-            self.update()?;
-            if self.engine()? {
-                continue;
-            }
-
-            // Guess, this is based on hard potentials, not a random guess!
-            if !self.qualified_guess()? {
-                if !self.incompetent_guess()? {
-                    self.snapshot_rollback()?
+        if *progress == 81 {
+            for s in self.squares.iter() {
+                if s.value == 0 {
+                    println!("{:?} - NOT SET {s:?}", self.snapshot_rollbacks);
                 }
             }
+            Progress::Solved("".to_string())
+        } else if self.iteration == self.max_attempts {
+            Progress::LimitReached("".to_string())
+        } else {
+            Progress::InProgress(self.iteration.to_string())
         }
-    }
-
-    /*
-     * Set a square value
-     *
-     * Once the value have been set, update Line, Column and ABox
-     *
-     * The method support two kinds of set value, Normal and Guess. We need
-     * to seperate them apart so that we can store the guessed value in the
-     * history. When we do not guess it should not be needed.
-     *
-     */
-    fn set_square(&mut self, square_id: usize, value: usize, kind: SetKind) -> AnyhowResult<&Self> {
-        match kind {
-            SetKind::NORMAL => self.squares[square_id].set_value(value, self.iteration),
-            SetKind::GUESS => self.squares[square_id].set_value_guess(value, self.iteration),
-        }
-
-        self.square_history.push((square_id, value));
-
-        // Update Line, Column and ABox
-        self.line[self.squares[square_id].line_id].set_taken(value);
-        self.column[self.squares[square_id].column_id].set_taken(value);
-        self.abox[self.squares[square_id].abox_id].set_taken(value);
-
-        Ok(self)
     }
 
     /*
@@ -329,17 +189,12 @@ impl Table {
      * guess that did not lead anywhere. This shall prevent us from going that
      * route again.
      */
-    fn snapshot_rollback(&mut self) -> AnyhowResult<()> {
-        //if self.snapshots.is_empty() {
-        //    return Ok(());
-        //}
+    pub fn snapshot_rollback(&mut self) -> AnyhowResult<()> {
         if self.snapshots.is_empty() {
             panic!("ERROR, there is no snapshot!");
         }
 
         let snapshot = self.snapshots.pop().unwrap();
-
-        //let (hash, snapshot) = self.snapshots.pop().unwrap();
         log::debug!("[snapshot] Roll back to snapshot");
 
         self.squares = snapshot.square;
@@ -362,7 +217,7 @@ impl Table {
      * This means that we take one square that have few hard potentials
      * and set it to one of them, then we see how it goes ;)
      */
-    fn qualified_guess(&mut self) -> AnyhowResult<bool> {
+    pub fn qualified_guess(&mut self) -> AnyhowResult<bool> {
         let mut snapshot = self.prepare_snapshot();
         let mut update: Option<(usize, usize)> = None;
 
@@ -386,8 +241,6 @@ impl Table {
             snapshot.value = value;
 
             self.snapshot_take(snapshot);
-            //self.snapshots.push(snapshot);
-            //self.snapshots_taken += 1;
             log::debug!("[guess] Qualified Guess -> true");
             Ok(true)
         } else {
@@ -396,24 +249,12 @@ impl Table {
     }
 
     fn snapshot_take(&mut self, snapshot: SnapShot) {
-        //let mut s = DefaultHasher::new();
-        //snapshot.hash(&mut s);
-        //let hash = s.finish();
-
-        // Check if snapshot already exists
-        //if !self.snapshots.contains_key(&hash) {
-        //    self.snapshots.insert(hash, snapshot);
-        //}
-        //self.snapshot_history.push(hash);
-        //self.snapshot_history.push(hash);
-        //self.snapshots.push((hash, snapshot));
-
         self.snapshots.push(snapshot);
         self.snapshots_taken += 1;
         log::debug!("[snapshot] Snapshot taken");
     }
 
-    fn incompetent_guess(&mut self) -> AnyhowResult<bool> {
+    pub fn incompetent_guess(&mut self) -> AnyhowResult<bool> {
         let mut snapshot = self.prepare_snapshot();
         let mut update: Option<(usize, usize)> = None;
 
@@ -443,27 +284,10 @@ impl Table {
             snapshot.value = value;
 
             self.snapshot_take(snapshot);
-            //self.snapshots.push(snapshot);
-            //self.snapshots_taken += 1;
             log::debug!("[guess] Incompetent Guess -> true");
             Ok(true)
         } else {
             Ok(false)
-        }
-    }
-
-    /*
-     * Prepare a snapshot
-     *
-     */
-    fn prepare_snapshot(&mut self) -> SnapShot {
-        SnapShot {
-            square: self.squares.clone(),
-            line: self.line.clone(),
-            column: self.column.clone(),
-            abox: self.abox.clone(),
-            value: 99,
-            square_id: 99,
         }
     }
 
@@ -474,7 +298,7 @@ impl Table {
      * As soon an update has been done we need to break to make sure
      * that we get an update on our data.
      */
-    fn engine(&mut self) -> AnyhowResult<bool> {
+    pub fn engine(&mut self) -> AnyhowResult<bool> {
         let mut updated: bool;
 
         updated = self._engine_line_one_left()?;
@@ -522,16 +346,331 @@ impl Table {
             return Ok(true);
         }
 
-        updated = self._engine_box_remove_potentials()?;
-        if updated {
-            let valid: bool = self.validate()?;
-            if !valid {
-                self.snapshot_rollback()?;
+        Ok(false)
+    }
+
+    /*
+     * Update square Line Column and ABox
+     *
+     * This update inspect all squares and update corrspoinding
+     * values on each struct.
+     *
+     */
+    pub fn update(&mut self) -> AnyhowResult<&mut Self> {
+        self._update_line()?;
+        self._update_column()?;
+        self._update_abox()?;
+        self._update_square_potentials()?;
+        self._update_box_remove_potentials()?;
+        Ok(self)
+    }
+
+    /*
+     * Set a square value
+     *
+     * Once the value have been set, update Line, Column and ABox
+     *
+     * The method support two kinds of set value, Normal and Guess. We need
+     * to seperate them apart so that we can store the guessed value in the
+     * history. When we do not guess it should not be needed.
+     *
+     */
+    fn set_square(&mut self, square_id: usize, value: usize, kind: SetKind) -> AnyhowResult<&Self> {
+        self.squares[square_id].set_value(value, kind);
+
+        // Update Line, Column and ABox
+        self.line[self.squares[square_id].line_id].set_taken(value);
+        self.column[self.squares[square_id].column_id].set_taken(value);
+        self.abox[self.squares[square_id].abox_id].set_taken(value);
+
+        Ok(self)
+    }
+
+    /*
+     * Prepare a snapshot
+     *
+     */
+    fn prepare_snapshot(&mut self) -> SnapShot {
+        SnapShot {
+            square: self.squares.clone(),
+            line: self.line.clone(),
+            column: self.column.clone(),
+            abox: self.abox.clone(),
+            value: 99,
+            square_id: 99,
+        }
+    }
+
+    /*
+     * REFACTOR
+     *
+     * Check what potentials exists for other squares in box
+     * If one potential is unique for this square it must be
+     * set to value
+     */
+    fn _engine_box(&mut self) -> AnyhowResult<bool> {
+        let mut update: Option<(usize, usize)> = None;
+        'outer: for square in &self.squares {
+            let mut friends_potentials: Vec<usize> = Vec::new();
+            let squares_in_box = self.get_abox(square.abox_id)?.get_square_ids();
+
+            // Ivestigate first
+            for square_id in squares_in_box {
+                if square_id == square.id {
+                    continue;
+                }
+                let friend_square = self.get_square(square_id)?;
+                if let Some(potentials) = friend_square.get_potentials() {
+                    for potential in potentials {
+                        if !friends_potentials.contains(potential) {
+                            friends_potentials.push(*potential)
+                        }
+                    }
+                };
+            }
+
+            if let Some(potentials) = square.get_potentials() {
+                for potential in potentials {
+                    if !friends_potentials.contains(potential) {
+                        update = Some((square.id, *potential));
+                        break 'outer;
+                    }
+                }
+            }
+
+            // Update
+        }
+
+        if update.is_some() {
+            let (id, value) = update.unwrap();
+            self.set_square(id, value, SetKind::NORMAL)?;
+            log::debug!("[engine] _engine_box -> true");
+            return Ok(true);
+        }
+
+        log::debug!("[engine] _engine_box -> false");
+        Ok(false)
+    }
+
+    /*
+     * Update square given on what line,column,box
+     *
+     */
+    fn _update_one_from(
+        &mut self,
+        container: Container,
+        id: usize,
+        value: usize,
+    ) -> AnyhowResult<()> {
+        let mut set_square_id: Option<usize> = None;
+        let mut a: Vec<usize> = Vec::new();
+
+        match container {
+            Container::ABOX => {
+                for square_id in self.abox.get(id).unwrap()._squares.iter() {
+                    a.push(*square_id);
+                    if self.squares[*square_id].value == 0 {
+                        set_square_id = Some(*square_id);
+                        break;
+                    }
+                }
+            }
+            Container::LINE => {
+                for square_id in self.line.get(id).unwrap()._squares.iter() {
+                    if self.squares[*square_id].value == 0 {
+                        set_square_id = Some(*square_id);
+                        break;
+                    }
+                }
+            }
+            Container::COLUMN => {
+                for square_id in self.column.get(id).unwrap()._squares.iter() {
+                    if self.squares[*square_id].value == 0 {
+                        set_square_id = Some(*square_id);
+                        break;
+                    }
+                }
+            }
+        }
+
+        self.set_square(set_square_id.unwrap(), value, SetKind::NORMAL)?;
+        Ok(())
+    }
+
+    /*
+     * Set value if only one left on the line
+     *
+     */
+    fn _engine_line_one_left(&mut self) -> AnyhowResult<bool> {
+        let mut updates: Vec<(Container, usize, usize)> = Vec::new();
+        for line in self.line.iter_mut() {
+            if line._remaining.len() == 1 {
+                updates.push((Container::LINE, line._id, line._remaining.pop().unwrap()));
+                log::debug!("[engine] _engine_line_one_left -> true");
+                break;
+            } else {
+                log::debug!("[engine] _engine_line_one_left -> false");
+            }
+        }
+
+        if !updates.is_empty() {
+            if updates.len() > 1 {
+                panic!("LINE update > 1");
+            }
+            for update in updates {
+                self._update_one_from(update.0, update.1, update.2)?;
             }
             return Ok(true);
         }
 
         Ok(false)
+    }
+
+    /*
+     * Set value if only one left on column
+     *
+     */
+    fn _engine_column_one_left(&mut self) -> AnyhowResult<bool> {
+        let mut updates: Vec<(Container, usize, usize)> = Vec::new();
+        for column in self.column.iter_mut() {
+            if column._remaining.len() == 1 {
+                updates.push((
+                    Container::COLUMN,
+                    column._id,
+                    column._remaining.pop().unwrap(),
+                ));
+                log::debug!("[engine] _engine_column_one_left -> true");
+                break;
+            } else {
+                log::debug!("[engine] _engine_column_one_left -> false");
+            }
+        }
+
+        if !updates.is_empty() {
+            for update in updates {
+                self._update_one_from(update.0, update.1, update.2)?;
+            }
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    /*
+     * Set value if only 1 square left in box
+     *
+     */
+    fn _engine_box_one_left(&mut self) -> AnyhowResult<bool> {
+        let mut updates: Vec<(Container, usize, usize)> = Vec::new();
+        for abox in self.abox.iter_mut() {
+            if abox._remaining.len() == 1 {
+                updates.push((Container::ABOX, abox._id, abox._remaining.pop().unwrap()));
+                log::debug!("[engine] _engine_box_one_left -> true");
+                break;
+            } else {
+                log::debug!("[engine] _engine_box_one_left -> false");
+            }
+        }
+
+        if !updates.is_empty() {
+            for update in updates {
+                self._update_one_from(update.0, update.1, update.2)?;
+            }
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    /*
+     * Set value if only one potential value exist for square
+     *
+     */
+    fn _engine_only_one_possible(&mut self) -> AnyhowResult<bool> {
+        let mut update: Option<(usize, usize)> = None;
+        for square in &mut self.squares {
+            if let Some(potentials) = square.get_potentials() {
+                if potentials.len() == 1 {
+                    update = Some((square.id, potentials.clone().pop().unwrap()));
+                }
+            }
+        }
+
+        if let Some(update) = update {
+            let (square_id, value) = update;
+            self.set_square(square_id, value, SetKind::NORMAL)?;
+            log::debug!("[engine] _engine_only_one_possible -> true");
+            return Ok(true);
+        }
+
+        log::debug!("[engine] _engine_only_one_possible -> false");
+        Ok(false)
+    }
+
+    /*
+     * Get reference to ABox given id
+     *
+     */
+    fn get_abox(&self, _id: usize) -> AnyhowResult<&ABox> {
+        for abox in self.abox.iter() {
+            if abox._id == _id {
+                return Ok(abox);
+            }
+        }
+        Err(anyhow!("Unable find abox with id: {_id}"))
+    }
+
+    /*
+     * Get reference to square given id
+     *
+     */
+    fn get_square(&self, _id: usize) -> AnyhowResult<&Square> {
+        for square in &self.squares {
+            if square.id == _id {
+                return Ok(square);
+            }
+        }
+        Err(anyhow!("No square with id: {_id} found"))
+    }
+
+    /*
+     * Get mut reference to square given id
+     *
+     */
+    fn get_square_mut(&mut self, _id: usize) -> AnyhowResult<&mut Square> {
+        for square in &mut self.squares {
+            if square.id == _id {
+                return Ok(square);
+            }
+        }
+        Err(anyhow!("No square with id: {_id} found"))
+    }
+
+    /*
+     * Update line,column,box potentials and potential for all squares
+     *
+     */
+    fn _update_square_potentials(&mut self) -> AnyhowResult<&mut Self> {
+        for square in &mut self.squares {
+            let ln = self.line.get(square.line_id).unwrap()._taken.clone();
+            square.update("line_potentials", helpers::inverse_vec(&ln));
+
+            let cn = self.column.get(square.column_id).unwrap()._taken.clone();
+            square.update("column_potentials", helpers::inverse_vec(&cn));
+
+            let bn = self.abox.get(square.abox_id).unwrap()._taken.clone();
+            square.update("box_potentials", helpers::inverse_vec(&bn));
+
+            if square.value == 0 {
+                square.set_potentials(helpers::multi_intersections(vec![
+                    square.box_potentials.clone(),
+                    square.line_potentials.clone(),
+                    square.column_potentials.clone(),
+                ]));
+            }
+        }
+
+        Ok(self)
     }
 
     /*
@@ -554,11 +693,17 @@ impl Table {
      *
      *
      */
-    fn _engine_box_remove_potentials(&mut self) -> AnyhowResult<bool> {
+    fn _update_box_remove_potentials(&mut self) -> AnyhowResult<()> {
         let mut identified: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
 
         for abox in &self.abox {
             let mut tmp: HashMap<usize, Vec<usize>> = HashMap::new();
+            //                    ^       ^
+            //                    |       + Vec of square ids that have this potential
+            //                    + potential
+            //
+            // So we build up a HashMap with the potentials and what squares that can have these
+
             for square_id in abox.get_square_ids() {
                 let square = self.get_square(square_id)?;
                 for potential in &square.potentials {
@@ -678,336 +823,13 @@ impl Table {
                 _ => (),
             }
         }
-
-        log::debug!("[engine] _engine_box_remove_potentials -> false");
-        Ok(false)
-    }
-
-    fn _engine_box(&mut self) -> AnyhowResult<bool> {
-        /*
-         * REFACTOR
-         *
-         * Check what potentials exists for other squares in box
-         * If one potential is unique for this square it must be
-         * set to value
-         */
-        let mut update: Option<(usize, usize)> = None;
-        'outer: for square in &self.squares {
-            let mut friends_potentials: Vec<usize> = Vec::new();
-            let squares_in_box = self.get_abox(square.abox_id)?.get_square_ids();
-
-            // Ivestigate first
-            for square_id in squares_in_box {
-                if square_id == square.id {
-                    continue;
-                }
-                let friend_square = self.get_square(square_id)?;
-                if let Some(potentials) = friend_square.get_potentials() {
-                    for potential in potentials {
-                        if !friends_potentials.contains(potential) {
-                            friends_potentials.push(*potential)
-                        }
-                    }
-                };
-            }
-
-            if let Some(potentials) = square.get_potentials() {
-                for potential in potentials {
-                    if !friends_potentials.contains(potential) {
-                        update = Some((square.id, *potential));
-                        break 'outer;
-                    }
-                }
-            }
-
-            // Update
-        }
-
-        if update.is_some() {
-            let (id, value) = update.unwrap();
-            self.set_square(id, value, SetKind::NORMAL)?;
-            log::debug!("[engine] _engine_box -> true");
-            return Ok(true);
-        }
-
-        log::debug!("[engine] _engine_box -> false");
-        Ok(false)
-    }
-
-    /*
-     * Update square given on what line,column,box
-     *
-     */
-    fn _update_one_from(
-        &mut self,
-        container: Container,
-        id: usize,
-        value: usize,
-    ) -> AnyhowResult<()> {
-        let mut set_square_id: Option<usize> = None;
-        let mut a: Vec<usize> = Vec::new();
-
-        match container {
-            Container::ABOX => {
-                for square_id in self.abox.get(id).unwrap()._squares.iter() {
-                    a.push(*square_id);
-                    if self.squares[*square_id].value == 0 {
-                        set_square_id = Some(*square_id);
-                        break;
-                    }
-                }
-            }
-            Container::LINE => {
-                for square_id in self.line.get(id).unwrap()._squares.iter() {
-                    if self.squares[*square_id].value == 0 {
-                        set_square_id = Some(*square_id);
-                        break;
-                    }
-                }
-            }
-            Container::COLUMN => {
-                for square_id in self.column.get(id).unwrap()._squares.iter() {
-                    if self.squares[*square_id].value == 0 {
-                        set_square_id = Some(*square_id);
-                        break;
-                    }
-                }
-            }
-        }
-
-        if let Some(square_id) = set_square_id {
-            self.set_square(square_id, value, SetKind::NORMAL)?;
-        } else {
-            log::error!("Something wrong!!! {:?}", set_square_id);
-            for i in a {
-                let s = self.get_square(i)?;
-                log::error!("{s:?}");
-            }
-            self.draw();
-            std::process::exit(0);
-        }
         Ok(())
     }
 
     /*
-     * Set value if only one left on the line
+     * Update remaining and taken for each box
      *
      */
-    fn _engine_line_one_left(&mut self) -> AnyhowResult<bool> {
-        let mut updates: Vec<(Container, usize, usize)> = Vec::new();
-        for line in self.line.iter_mut() {
-            if line._remaining.len() == 1 {
-                updates.push((Container::LINE, line._id, line._remaining.pop().unwrap()));
-                log::debug!("[engine] _engine_line_one_left -> true");
-                break;
-            } else {
-                log::debug!("[engine] _engine_line_one_left -> false");
-            }
-        }
-
-        if !updates.is_empty() {
-            if updates.len() > 1 {
-                panic!("LINE update > 1");
-            }
-            for update in updates {
-                self._update_one_from(update.0, update.1, update.2)?;
-            }
-            return Ok(true);
-        }
-
-        Ok(false)
-    }
-
-    /*
-     * Set value if only one left on column
-     *
-     */
-    fn _engine_column_one_left(&mut self) -> AnyhowResult<bool> {
-        let mut updates: Vec<(Container, usize, usize)> = Vec::new();
-        for column in self.column.iter_mut() {
-            if column._remaining.len() == 1 {
-                updates.push((
-                    Container::COLUMN,
-                    column._id,
-                    column._remaining.pop().unwrap(),
-                ));
-                log::debug!("[engine] _engine_column_one_left -> true");
-                break;
-            } else {
-                log::debug!("[engine] _engine_column_one_left -> false");
-            }
-        }
-
-        if !updates.is_empty() {
-            if updates.len() > 1 {
-                panic!("COLUMN update > 1");
-            }
-            for update in updates {
-                self._update_one_from(update.0, update.1, update.2)?;
-            }
-            return Ok(true);
-        }
-
-        Ok(false)
-    }
-
-    /*
-     * Set value if only 1 square left in box
-     *
-     */
-    fn _engine_box_one_left(&mut self) -> AnyhowResult<bool> {
-        let mut updates: Vec<(Container, usize, usize)> = Vec::new();
-        for abox in self.abox.iter_mut() {
-            if abox._remaining.len() == 1 {
-                updates.push((Container::ABOX, abox._id, abox._remaining.pop().unwrap()));
-                log::debug!("[engine] _engine_box_one_left -> true");
-                break;
-            } else {
-                log::debug!("[engine] _engine_box_one_left -> false");
-            }
-        }
-
-        if !updates.is_empty() {
-            if updates.len() > 1 {
-                panic!("BOX update > 1");
-            }
-            for update in updates {
-                self._update_one_from(update.0, update.1, update.2)?;
-            }
-            return Ok(true);
-        }
-
-        Ok(false)
-        //let mut update: Option<(Vec<usize>, usize)> = None;
-        //
-        //for abox in self.abox.iter_mut() {
-        //    if abox._remaining.len() == 1 {
-        //        update = Some((
-        //            [
-        //                abox._0, abox._1, abox._2, abox._3, abox._4, abox._5, abox._6, abox._7,
-        //                abox._8,
-        //            ]
-        //            .to_vec(),
-        //            abox._remaining.pop().unwrap(),
-        //        ));
-        //        break;
-        //    }
-        //}
-        //
-        //if let Some(update) = update {
-        //    let (square_ids, value) = update;
-        //    for square_id in square_ids {
-        //        if self.squares[square_id].value == 0 {
-        //            self.set_square(square_id, value, SetKind::NORMAL)?;
-        //            log::debug!("[engine] _engine_box_one_left -> true");
-        //            return Ok(true);
-        //        }
-        //    }
-        //}
-        //
-        //log::debug!("[engine] _engine_box_one_left -> false");
-        //Ok(false)
-    }
-
-    /*
-     * Set value if only one potential value exist for square
-     *
-     */
-    fn _engine_only_one_possible(&mut self) -> AnyhowResult<bool> {
-        let mut update: Option<(usize, usize)> = None;
-        for square in &mut self.squares {
-            if let Some(potentials) = square.get_potentials() {
-                if potentials.len() == 1 {
-                    update = Some((square.id, potentials.clone().pop().unwrap()));
-                }
-            }
-        }
-
-        if let Some(update) = update {
-            let (square_id, value) = update;
-            self.set_square(square_id, value, SetKind::NORMAL)?;
-            log::debug!("[engine] _engine_only_one_possible -> true");
-            return Ok(true);
-        }
-
-        log::debug!("[engine] _engine_only_one_possible -> false");
-        Ok(false)
-    }
-
-    /*
-     * Get reference to ABox given id
-     */
-    fn get_abox(&self, _id: usize) -> AnyhowResult<&ABox> {
-        for abox in self.abox.iter() {
-            if abox._id == _id {
-                return Ok(abox);
-            }
-        }
-        Err(anyhow!("Unable find abox with id: {_id}"))
-    }
-
-    /*
-     * Get reference to square given id
-     */
-    fn get_square(&self, _id: usize) -> AnyhowResult<&Square> {
-        for square in &self.squares {
-            if square.id == _id {
-                return Ok(square);
-            }
-        }
-        Err(anyhow!("No square with id: {_id} found"))
-    }
-
-    /*
-     * Get reference to square given id
-     */
-    fn get_square_mut(&mut self, _id: usize) -> AnyhowResult<&mut Square> {
-        for square in &mut self.squares {
-            if square.id == _id {
-                return Ok(square);
-            }
-        }
-        Err(anyhow!("No square with id: {_id} found"))
-    }
-
-    /*
-     * Update square Line Column and ABox
-     *
-     * This update inspect all squares and update corrspoinding
-     * values on each struct.
-     *
-     */
-    fn update(&mut self) -> AnyhowResult<&mut Self> {
-        self._update_line()?;
-        self._update_column()?;
-        self._update_abox()?;
-        self._update_square_potentials()?;
-        Ok(self)
-    }
-
-    fn _update_square_potentials(&mut self) -> AnyhowResult<&mut Self> {
-        for square in &mut self.squares {
-            let ln = self.line.get(square.line_id).unwrap()._taken.clone();
-            square.update("line_potentials", helpers::inverse_vec(&ln));
-
-            let cn = self.column.get(square.column_id).unwrap()._taken.clone();
-            square.update("column_potentials", helpers::inverse_vec(&cn));
-
-            let bn = self.abox.get(square.abox_id).unwrap()._taken.clone();
-            square.update("box_potentials", helpers::inverse_vec(&bn));
-
-            if square.value == 0 {
-                square.set_potentials(helpers::multi_intersections(vec![
-                    square.box_potentials.clone(),
-                    square.line_potentials.clone(),
-                    square.column_potentials.clone(),
-                ]));
-            }
-        }
-
-        Ok(self)
-    }
-
     fn _update_abox(&mut self) -> AnyhowResult<&mut Self> {
         let mut abox_taken: HashMap<usize, Vec<usize>> = HashMap::new();
 
@@ -1035,21 +857,10 @@ impl Table {
         Ok(self)
     }
 
-    fn debug_table(&self) {
-        for l in self.line.iter() {
-            println!("{l:?}");
-        }
-        for c in self.column.iter() {
-            println!("{c:?}");
-        }
-        for b in self.abox.iter() {
-            println!("{b:?}");
-        }
-        for s in self.squares.iter() {
-            println!("{s:?}");
-        }
-    }
-
+    /*
+     * Update remaining and taken for each line
+     *
+     */
     fn _update_line(&mut self) -> AnyhowResult<&mut Self> {
         let mut line_taken: HashMap<usize, Vec<usize>> = HashMap::new();
 
@@ -1077,6 +888,10 @@ impl Table {
         Ok(self)
     }
 
+    /*
+     * Update remaining and taken for each line
+     *
+     */
     fn _update_column(&mut self) -> AnyhowResult<&mut Self> {
         let mut column_taken: HashMap<usize, Vec<usize>> = HashMap::new();
 
@@ -1102,46 +917,6 @@ impl Table {
         }
 
         Ok(self)
-    }
-    /*
-     * Draw the Table
-     */
-    pub fn draw(&mut self) -> &mut Self {
-        print!("╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗");
-        let mut c = 0;
-        for i in 0..81_usize {
-            match i {
-                27 | 54 => {
-                    println!();
-                    print!("╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣");
-                }
-                9 | 18 | 36 | 45 | 63 | 72 => {
-                    println!();
-                    print!("╟───┼───┼───╫───┼───┼───╫───┼───┼───╢");
-                }
-                _ => (),
-            }
-            if i % 9 == 0 {
-                println!();
-                print!("║"); // beginning
-                c = 0;
-            };
-
-            let value = self.squares[i].value;
-            match value {
-                0 => print!("   "),
-                _ => print!(" {value} "),
-            }
-            if c == 2 || c == 5 || c == 8 {
-                print!("║");
-            } else {
-                print!("│");
-            }
-            c += 1;
-        }
-        println!();
-        println!("╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝");
-        self
     }
 
     /*
@@ -1528,7 +1303,7 @@ mod tests {
      *
      */
     #[test]
-    fn test_01__engine_box() {
+    fn test_01_engine_box() {
         let configuration: Vec<usize> = [
             3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 7, 1, 9, 6, 0, 0, 2, 4, 0, 0, 0, 5, 0, 0, 0, 0, 1, 0, 2,
             0, 8, 4, 0, 7, 0, 0, 0, 0, 0, 6, 0, 9, 0, 0, 0, 0, 0, 5, 0, 1, 2, 0, 9, 0, 9, 0, 0, 0,
