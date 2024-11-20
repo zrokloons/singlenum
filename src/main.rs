@@ -58,11 +58,13 @@ fn runner(puzzle: Utf8PathBuf, attempts: i32) -> AnyhowResult<()> {
     loop {
         match table.complete() {
             Progress::Solved(msg) => {
-                solved(&table, &msg);
+                draw_table(&table);
+                println!("Puzzle solved {msg}");
                 break;
             }
             Progress::LimitReached(msg) => {
-                limit_reached(&table, &msg);
+                draw_table(&table);
+                println!("Unable to solve puzzle {msg}");
                 break;
             }
             Progress::InProgress(iteration) => log::debug!("[iteration] {iteration}"),
@@ -80,14 +82,4 @@ fn runner(puzzle: Utf8PathBuf, attempts: i32) -> AnyhowResult<()> {
         }
     }
     Ok(())
-}
-
-fn solved(table: &table::core::Table, _msg: &str) {
-    draw_table(table);
-    println!("Puzzle solved")
-}
-
-fn limit_reached(table: &table::core::Table, _msg: &str) {
-    draw_table(table);
-    println!("Unable to solve puzzle!")
 }

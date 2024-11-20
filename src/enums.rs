@@ -12,6 +12,6 @@ pub enum SetKind {
 
 pub enum Progress {
     Solved(String),
-    InProgress(String),
+    InProgress(i32),
     LimitReached(String),
 }

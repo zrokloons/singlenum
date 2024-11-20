@@ -86,24 +86,12 @@ impl Table {
             };
 
             s.push(t);
-            let apa: Vec<usize> = (0..=8).collect();
+            let numbers: Vec<usize> = (0..=8).collect();
 
             match index {
                 8 | 17 | 26 | 35 | 44 | 53 | 62 | 71 | 80 => l.push(Line::new(
                     index / 9,
-                    apa.iter().map(|x| index - x).collect(),
-                    //[
-                    //    index - 8,
-                    //    index - 7,
-                    //    index - 6,
-                    //    index - 5,
-                    //    index - 4,
-                    //    index - 3,
-                    //    index - 2,
-                    //    index - 1,
-                    //    index,
-                    //]
-                    //.to_vec(),
+                    numbers.iter().map(|x| index - x).collect(),
                 )),
                 _ => (),
             }
@@ -111,18 +99,7 @@ impl Table {
             if let 72..=80 = index {
                 c.push(Column::new(
                     index % 9,
-                    [
-                        index - (9 * 8),
-                        index - (9 * 7),
-                        index - (9 * 6),
-                        index - (9 * 5),
-                        index - (9 * 4),
-                        index - (9 * 3),
-                        index - (9 * 2),
-                        index - 9,
-                        index,
-                    ]
-                    .to_vec(),
+                    numbers.iter().map(|x| index - (9 * x)).collect(),
                 ));
             }
 
@@ -163,19 +140,19 @@ impl Table {
      * Puzzle finished
      */
     pub fn complete(&mut self) -> Progress {
+        self.iteration += 1;
         let progress: &usize = &self.squares.iter().filter(|x| x.value != 0).count();
+        let msg = format!(
+            "[iterations: {}, snapshots: {}, rollbacks: {}]",
+            self.iteration, self.snapshots_taken, self.snapshot_rollbacks
+        );
 
         if *progress == 81 {
-            for s in self.squares.iter() {
-                if s.value == 0 {
-                    println!("{:?} - NOT SET {s:?}", self.snapshot_rollbacks);
-                }
-            }
-            Progress::Solved("".to_string())
+            Progress::Solved(msg)
         } else if self.iteration == self.max_attempts {
-            Progress::LimitReached("".to_string())
+            Progress::LimitReached(msg)
         } else {
-            Progress::InProgress(self.iteration.to_string())
+            Progress::InProgress(self.iteration)
         }
     }
 
@@ -301,7 +278,7 @@ impl Table {
     pub fn engine(&mut self) -> AnyhowResult<bool> {
         let mut updated: bool;
 
-        updated = self._engine_line_one_left()?;
+        updated = self.engine_line_one_left()?;
         if updated {
             let valid: bool = self.validate()?;
             if !valid {
@@ -310,7 +287,7 @@ impl Table {
             return Ok(true);
         }
 
-        updated = self._engine_column_one_left()?;
+        updated = self.engine_column_one_left()?;
         if updated {
             let valid: bool = self.validate()?;
             if !valid {
@@ -319,7 +296,7 @@ impl Table {
             return Ok(true);
         }
 
-        updated = self._engine_box_one_left()?;
+        updated = self.engine_box_one_left()?;
         if updated {
             let valid: bool = self.validate()?;
             if !valid {
@@ -328,7 +305,7 @@ impl Table {
             return Ok(true);
         }
 
-        updated = self._engine_only_one_possible()?;
+        updated = self.engine_only_one_possible()?;
         if updated {
             let valid: bool = self.validate()?;
             if !valid {
@@ -337,7 +314,7 @@ impl Table {
             return Ok(true);
         }
 
-        updated = self._engine_box()?;
+        updated = self.engine_box()?;
         if updated {
             let valid: bool = self.validate()?;
             if !valid {
@@ -357,11 +334,11 @@ impl Table {
      *
      */
     pub fn update(&mut self) -> AnyhowResult<&mut Self> {
-        self._update_line()?;
-        self._update_column()?;
-        self._update_abox()?;
-        self._update_square_potentials()?;
-        self._update_box_remove_potentials()?;
+        self.update_line()?;
+        self.update_column()?;
+        self.update_abox()?;
+        self.update_square_potentials()?;
+        self.update_box_remove_potentials()?;
         Ok(self)
     }
 
@@ -408,7 +385,7 @@ impl Table {
      * If one potential is unique for this square it must be
      * set to value
      */
-    fn _engine_box(&mut self) -> AnyhowResult<bool> {
+    pub fn engine_box(&mut self) -> AnyhowResult<bool> {
         let mut update: Option<(usize, usize)> = None;
         'outer: for square in &self.squares {
             let mut friends_potentials: Vec<usize> = Vec::new();
@@ -444,11 +421,11 @@ impl Table {
         if update.is_some() {
             let (id, value) = update.unwrap();
             self.set_square(id, value, SetKind::NORMAL)?;
-            log::debug!("[engine] _engine_box -> true");
+            log::debug!("[engine] engine_box -> true");
             return Ok(true);
         }
 
-        log::debug!("[engine] _engine_box -> false");
+        log::debug!("[engine] engine_box -> false");
         Ok(false)
     }
 
@@ -501,15 +478,15 @@ impl Table {
      * Set value if only one left on the line
      *
      */
-    fn _engine_line_one_left(&mut self) -> AnyhowResult<bool> {
+    pub fn engine_line_one_left(&mut self) -> AnyhowResult<bool> {
         let mut updates: Vec<(Container, usize, usize)> = Vec::new();
         for line in self.line.iter_mut() {
             if line._remaining.len() == 1 {
                 updates.push((Container::LINE, line._id, line._remaining.pop().unwrap()));
-                log::debug!("[engine] _engine_line_one_left -> true");
+                log::debug!("[engine] engine_line_one_left -> true");
                 break;
             } else {
-                log::debug!("[engine] _engine_line_one_left -> false");
+                log::debug!("[engine] engine_line_one_left -> false");
             }
         }
 
@@ -530,7 +507,7 @@ impl Table {
      * Set value if only one left on column
      *
      */
-    fn _engine_column_one_left(&mut self) -> AnyhowResult<bool> {
+    pub fn engine_column_one_left(&mut self) -> AnyhowResult<bool> {
         let mut updates: Vec<(Container, usize, usize)> = Vec::new();
         for column in self.column.iter_mut() {
             if column._remaining.len() == 1 {
@@ -539,10 +516,10 @@ impl Table {
                     column._id,
                     column._remaining.pop().unwrap(),
                 ));
-                log::debug!("[engine] _engine_column_one_left -> true");
+                log::debug!("[engine] engine_column_one_left -> true");
                 break;
             } else {
-                log::debug!("[engine] _engine_column_one_left -> false");
+                log::debug!("[engine] engine_column_one_left -> false");
             }
         }
 
@@ -560,15 +537,15 @@ impl Table {
      * Set value if only 1 square left in box
      *
      */
-    fn _engine_box_one_left(&mut self) -> AnyhowResult<bool> {
+    pub fn engine_box_one_left(&mut self) -> AnyhowResult<bool> {
         let mut updates: Vec<(Container, usize, usize)> = Vec::new();
         for abox in self.abox.iter_mut() {
             if abox._remaining.len() == 1 {
                 updates.push((Container::ABOX, abox._id, abox._remaining.pop().unwrap()));
-                log::debug!("[engine] _engine_box_one_left -> true");
+                log::debug!("[engine] engine_box_one_left -> true");
                 break;
             } else {
-                log::debug!("[engine] _engine_box_one_left -> false");
+                log::debug!("[engine] engine_box_one_left -> false");
             }
         }
 
@@ -586,7 +563,7 @@ impl Table {
      * Set value if only one potential value exist for square
      *
      */
-    fn _engine_only_one_possible(&mut self) -> AnyhowResult<bool> {
+    pub fn engine_only_one_possible(&mut self) -> AnyhowResult<bool> {
         let mut update: Option<(usize, usize)> = None;
         for square in &mut self.squares {
             if let Some(potentials) = square.get_potentials() {
@@ -599,11 +576,11 @@ impl Table {
         if let Some(update) = update {
             let (square_id, value) = update;
             self.set_square(square_id, value, SetKind::NORMAL)?;
-            log::debug!("[engine] _engine_only_one_possible -> true");
+            log::debug!("[engine] engine_only_one_possible -> true");
             return Ok(true);
         }
 
-        log::debug!("[engine] _engine_only_one_possible -> false");
+        log::debug!("[engine] engine_only_one_possible -> false");
         Ok(false)
     }
 
@@ -612,12 +589,10 @@ impl Table {
      *
      */
     fn get_abox(&self, _id: usize) -> AnyhowResult<&ABox> {
-        for abox in self.abox.iter() {
-            if abox._id == _id {
-                return Ok(abox);
-            }
+        match self.abox.iter().filter(|x| x._id == _id).last() {
+            Some(abox) => Ok(abox),
+            None => Err(anyhow!("Unable find abox with id: {_id}")),
         }
-        Err(anyhow!("Unable find abox with id: {_id}"))
     }
 
     /*
@@ -625,12 +600,10 @@ impl Table {
      *
      */
     fn get_square(&self, _id: usize) -> AnyhowResult<&Square> {
-        for square in &self.squares {
-            if square.id == _id {
-                return Ok(square);
-            }
+        match self.squares.iter().filter(|x| x.id == _id).last() {
+            Some(square) => Ok(square),
+            None => Err(anyhow!("No square with id: {_id} found")),
         }
-        Err(anyhow!("No square with id: {_id} found"))
     }
 
     /*
@@ -638,19 +611,17 @@ impl Table {
      *
      */
     fn get_square_mut(&mut self, _id: usize) -> AnyhowResult<&mut Square> {
-        for square in &mut self.squares {
-            if square.id == _id {
-                return Ok(square);
-            }
+        match self.squares.iter_mut().filter(|x| x.id == _id).last() {
+            Some(square) => Ok(square),
+            None => Err(anyhow!("No square with id: {_id} found")),
         }
-        Err(anyhow!("No square with id: {_id} found"))
     }
 
     /*
      * Update line,column,box potentials and potential for all squares
      *
      */
-    fn _update_square_potentials(&mut self) -> AnyhowResult<&mut Self> {
+    fn update_square_potentials(&mut self) -> AnyhowResult<&mut Self> {
         for square in &mut self.squares {
             let ln = self.line.get(square.line_id).unwrap()._taken.clone();
             square.update("line_potentials", helpers::inverse_vec(&ln));
@@ -693,7 +664,7 @@ impl Table {
      *
      *
      */
-    fn _update_box_remove_potentials(&mut self) -> AnyhowResult<()> {
+    fn update_box_remove_potentials(&mut self) -> AnyhowResult<()> {
         let mut identified: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
 
         for abox in &self.abox {
@@ -830,7 +801,7 @@ impl Table {
      * Update remaining and taken for each box
      *
      */
-    fn _update_abox(&mut self) -> AnyhowResult<&mut Self> {
+    pub fn update_abox(&mut self) -> AnyhowResult<&mut Self> {
         let mut abox_taken: HashMap<usize, Vec<usize>> = HashMap::new();
 
         for abox in &self.abox {
@@ -861,7 +832,7 @@ impl Table {
      * Update remaining and taken for each line
      *
      */
-    fn _update_line(&mut self) -> AnyhowResult<&mut Self> {
+    pub fn update_line(&mut self) -> AnyhowResult<&mut Self> {
         let mut line_taken: HashMap<usize, Vec<usize>> = HashMap::new();
 
         for line in &self.line {
@@ -892,7 +863,7 @@ impl Table {
      * Update remaining and taken for each line
      *
      */
-    fn _update_column(&mut self) -> AnyhowResult<&mut Self> {
+    pub fn update_column(&mut self) -> AnyhowResult<&mut Self> {
         let mut column_taken: HashMap<usize, Vec<usize>> = HashMap::new();
 
         for column in &self.column {
@@ -1006,316 +977,4 @@ impl Table {
         }
         Ok(true)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /*
-     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
-     * ║ 8 │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ...
-     */
-    #[test]
-    fn test_01_engine_box_one_left() {
-        let configuration: Vec<usize> = [
-            8, 5, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 0, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
-            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
-            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
-        ]
-        .to_vec();
-        let mut table = Table::new(configuration, 1);
-        table._update_abox().unwrap();
-
-        let result = table._engine_box_one_left().unwrap();
-        assert_eq!(true, result);
-        assert_eq!(table.squares[18].value, 1_usize);
-    }
-
-    /*
-     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
-     * ║ 8 │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ...
-     *
-     */
-    #[test]
-    fn test_02_engine_box_one_left() {
-        let configuration: Vec<usize> = [
-            8, 5, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 1, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
-            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
-            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
-        ]
-        .to_vec();
-        let mut table = Table::new(configuration, 1);
-        table._update_abox().unwrap();
-
-        let result = table._engine_box_one_left().unwrap();
-        assert_eq!(false, result);
-    }
-
-    /*
-     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
-     * ║   │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │   │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 1 │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ...
-     *
-     */
-    #[test]
-    fn test_01_engine_line_one_left() {
-        let configuration: Vec<usize> = [
-            0, 5, 9, 6, 1, 2, 4, 3, 7, 0, 0, 3, 8, 5, 4, 1, 6, 9, 1, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
-            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
-            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
-        ]
-        .to_vec();
-        let mut table = Table::new(configuration, 1);
-        table._update_line().unwrap();
-
-        let result = table._engine_line_one_left().unwrap();
-        assert_eq!(true, result);
-        assert_eq!(table.squares[0].value, 8_usize);
-    }
-
-    /*
-     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
-     * ║   │   │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 1 │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ...
-     *
-     */
-    #[test]
-    fn test_02_engine_line_one_left() {
-        let configuration: Vec<usize> = [
-            0, 0, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 1, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
-            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
-            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
-        ]
-        .to_vec();
-        let mut table = Table::new(configuration, 1);
-        table._update_line().unwrap();
-
-        let result = table._engine_line_one_left().unwrap();
-        assert_eq!(false, result);
-    }
-
-    /*
-     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
-     * ║ 8 │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ║ 9 │ 8 │ 6 ║ 1 │ 4 │ 7 ║ 3 │ 5 │ 2 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 3 │ 7 │ 5 ║ 2 │ 6 │ 8 ║ 9 │ 1 │ 4 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 2 │ 4 │ 1 ║ 5 │ 9 │ 3 ║ 7 │ 8 │ 6 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ║ 4 │ 3 │ 2 ║ 9 │ 8 │ 1 ║ 6 │ 7 │ 5 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 6 │ 1 │ 7 ║ 4 │ 2 │ 5 ║ 8 │ 9 │ 3 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 5 │ 9 │ 8 ║ 7 │ 3 │ 6 ║ 2 │ 4 │ 1 ║
-     * ╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝
-     *
-     */
-    #[test]
-    fn test_01_engine_column_one_left() {
-        let configuration: Vec<usize> = [
-            8, 5, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 0, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
-            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
-            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
-        ]
-        .to_vec();
-        let mut table = Table::new(configuration, 1);
-        table._update_column().unwrap();
-
-        let result = table._engine_column_one_left().unwrap();
-        assert_eq!(true, result);
-        assert_eq!(table.squares[18].value, 1_usize);
-    }
-
-    /*
-     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
-     * ║   │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ║ 9 │ 8 │ 6 ║ 1 │ 4 │ 7 ║ 3 │ 5 │ 2 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 3 │ 7 │ 5 ║ 2 │ 6 │ 8 ║ 9 │ 1 │ 4 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 2 │ 4 │ 1 ║ 5 │ 9 │ 3 ║ 7 │ 8 │ 6 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ║ 4 │ 3 │ 2 ║ 9 │ 8 │ 1 ║ 6 │ 7 │ 5 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 6 │ 1 │ 7 ║ 4 │ 2 │ 5 ║ 8 │ 9 │ 3 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 5 │ 9 │ 8 ║ 7 │ 3 │ 6 ║ 2 │ 4 │ 1 ║
-     * ╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝
-     *
-     */
-    #[test]
-    fn test_02_engine_column_one_left() {
-        let configuration: Vec<usize> = [
-            0, 5, 9, 6, 1, 2, 4, 3, 7, 0, 2, 3, 8, 5, 4, 1, 6, 9, 0, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
-            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 6, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
-            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
-        ]
-        .to_vec();
-        let mut table = Table::new(configuration, 1);
-        table._update_column().unwrap();
-
-        let result = table._engine_column_one_left().unwrap();
-        assert_eq!(false, result);
-    }
-
-    /*
-     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
-     * ║ 8 │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 1 │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ║ 9 │ 8 │ 6 ║ 1 │ 4 │ 7 ║ 3 │ 5 │ 2 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 3 │ 7 │ 5 ║ 2 │   │ 8 ║ 9 │ 1 │ 4 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 2 │ 4 │ 1 ║ 5 │ 9 │ 3 ║ 7 │ 8 │ 6 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ║ 4 │ 3 │ 2 ║ 9 │ 8 │ 1 ║ 6 │ 7 │ 5 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 6 │ 1 │ 7 ║ 4 │ 2 │ 5 ║ 8 │ 9 │ 3 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 5 │ 9 │ 8 ║ 7 │ 3 │ 6 ║ 2 │ 4 │ 1 ║
-     * ╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝
-     *
-     */
-    #[test]
-    fn test_01_engine_only_one_possible() {
-        let configuration: Vec<usize> = [
-            8, 5, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 1, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
-            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 2, 0, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
-            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
-        ]
-        .to_vec();
-        let mut table = Table::new(configuration, 1);
-        table.squares[40].potentials = [6].to_vec();
-
-        let result = table._engine_only_one_possible().unwrap();
-        assert_eq!(true, result);
-        assert_eq!(table.squares[40].value, 6_usize);
-    }
-
-    /*
-     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
-     * ║ 8 │ 5 │ 9 ║ 6 │ 1 │ 2 ║ 4 │ 3 │ 7 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 7 │ 2 │ 3 ║ 8 │ 5 │ 4 ║ 1 │ 6 │ 9 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 1 │ 6 │ 4 ║ 3 │ 7 │ 9 ║ 5 │ 2 │ 8 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ║ 9 │ 8 │ 6 ║ 1 │ 4 │ 7 ║ 3 │ 5 │ 2 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 3 │ 7 │ 5 ║   │   │ 8 ║ 9 │ 1 │ 4 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 2 │ 4 │ 1 ║ 5 │ 9 │ 3 ║ 7 │ 8 │ 6 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ║ 4 │ 3 │ 2 ║ 9 │ 8 │ 1 ║ 6 │ 7 │ 5 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 6 │ 1 │ 7 ║ 4 │ 2 │ 5 ║ 8 │ 9 │ 3 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 5 │ 9 │ 8 ║ 7 │ 3 │ 6 ║ 2 │ 4 │ 1 ║
-     * ╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝
-     *
-     */
-    #[test]
-    fn test_02_engine_only_one_possible() {
-        let configuration: Vec<usize> = [
-            8, 5, 9, 6, 1, 2, 4, 3, 7, 7, 2, 3, 8, 5, 4, 1, 6, 9, 1, 6, 4, 3, 7, 9, 5, 2, 8, 9, 8,
-            6, 1, 4, 7, 3, 5, 2, 3, 7, 5, 0, 0, 8, 9, 1, 4, 2, 4, 1, 5, 9, 3, 7, 8, 6, 4, 3, 2, 9,
-            8, 1, 6, 7, 5, 6, 1, 7, 4, 2, 5, 8, 9, 3, 5, 9, 8, 7, 3, 6, 2, 4, 1,
-        ]
-        .to_vec();
-        let mut table = Table::new(configuration, 1);
-        table.squares[39].potentials = [6, 2].to_vec();
-        table.squares[40].potentials = [6, 2].to_vec();
-
-        let result = table._engine_only_one_possible().unwrap();
-        assert_eq!(false, result);
-    }
-
-    /*
-     * ╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗
-     * ║ 3 │   │   ║   │   │ 1 ║   │   │   ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │ 7 │ 1 ║ 9 │ 6 │   ║   │ 2 │ 4 ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │   │   ║ 5 │   │   ║   │   │ 1 ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ║   │ 2 │   ║ 8 │ 4 │   ║ 7 │   │   ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │   │   ║ 6 │   │ 9 ║   │   │   ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │   │ 5 ║   │ 1 │ 2 ║   │ 9 │   ║
-     * ╠═══╪═══╪═══╬═══╪═══╪═══╬═══╪═══╪═══╣
-     * ║ 9 │   │   ║   │   │ 6 ║   │   │   ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║ 2 │ 6 │   ║   │ 9 │ 7 ║ 1 │ 5 │   ║
-     * ╟───┼───┼───╫───┼───┼───╫───┼───┼───╢
-     * ║   │   │   ║ 1 │   │   ║   │   │ 2 ║
-     * ╚═══╧═══╧═══╩═══╧═══╧═══╩═══╧═══╧═══╝
-     *
-     *  ID: 27 potentials: [6, 1]
-     *  ID: 28 potentials: []
-     *  ID: 29 potentials: [3, 6, 9]
-     *  ID: 36 potentials: [8, 1, 4, 7]
-     *  ID: 37 potentials: [1, 3, 8, 4]
-     *  ID: 38 potentials: [3, 4, 7, 8]
-     *  ID: 45 potentials: [8, 6, 4, 7]
-     *  ID: 46 potentials: [8, 3, 4]
-     *  ID: 47 potentials: []
-     *
-     *  In this case it's only square 29 that have a potential for number 9
-     *
-     */
-    #[test]
-    fn test_01_engine_box() {
-        let configuration: Vec<usize> = [
-            3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 7, 1, 9, 6, 0, 0, 2, 4, 0, 0, 0, 5, 0, 0, 0, 0, 1, 0, 2,
-            0, 8, 4, 0, 7, 0, 0, 0, 0, 0, 6, 0, 9, 0, 0, 0, 0, 0, 5, 0, 1, 2, 0, 9, 0, 9, 0, 0, 0,
-            0, 6, 0, 0, 0, 2, 6, 0, 0, 9, 7, 1, 5, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2,
-        ]
-        .to_vec();
-        let mut table = Table::new(configuration, 1);
-
-        table.update().unwrap();
-        let result = table._engine_box().unwrap();
-        assert_eq!(true, result);
-        assert_eq!(table.squares[29].value, 9_usize);
-    }
-    // _engine_box_remove_potentials
 }
