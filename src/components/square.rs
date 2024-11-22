@@ -1,7 +1,9 @@
+use crate::enums::SetKind;
 use log;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Square {
     pub id: usize,
     pub value: usize,
@@ -15,6 +17,12 @@ pub struct Square {
     pub history: Vec<usize>,
 }
 
+impl Hash for Square {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.value.hash(state);
+    }
+}
+
 impl fmt::Display for Square {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
@@ -26,7 +34,7 @@ impl fmt::Display for Square {
 }
 
 impl Square {
-    pub fn set_value(&mut self, value: usize) {
+    pub fn set_value(&mut self, value: usize, kind: SetKind) {
         log::debug!(
             "[set_value] ID: {:?}, value: {:?}, | {:?} {:?} potentials {:?}",
             self.id,
@@ -40,27 +48,15 @@ impl Square {
         self.line_potentials.clear();
         self.column_potentials.clear();
         self.box_potentials.clear();
-    }
 
-    pub fn set_value_guess(&mut self, value: usize) {
-        log::debug!(
-            "[set_value] ID: {:?}, value: {:?}, | {:?} {:?} potentials {:?}",
-            self.id,
-            value,
-            self.line_id,
-            self.column_id,
-            self.potentials,
-        );
-        self.value = value;
-        self.potentials.clear();
-        self.line_potentials.clear();
-        self.column_potentials.clear();
-        self.box_potentials.clear();
-        self.history.push(value);
+        if kind == SetKind::GUESS {
+            self.history.push(value);
+        }
     }
 
     /*
      * Set potentials.
+     *
      */
     pub fn set_potentials(&mut self, value: Vec<usize>) {
         self.potentials = value;
