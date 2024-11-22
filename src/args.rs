@@ -17,8 +17,9 @@ pub struct Arguments {
 pub struct RequiredOption {
     /// File containing puzzle
     #[arg(short, long = "file")]
-    pub file: Utf8PathBuf,
+    pub file: Option<Utf8PathBuf>,
+
     ///// Path containing puzzles
-    //#[arg(short, long = "path")]
-    //pub path: Utf8PathBuf,
+    #[arg(short, long = "path")]
+    pub path: Option<Utf8PathBuf>,
 }

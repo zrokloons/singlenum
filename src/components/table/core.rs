@@ -137,6 +137,27 @@ impl Table {
     }
 
     /*
+     * Set a square value
+     *
+     * Once the value have been set, update Line, Column and ABox
+     *
+     * The method support two kinds of set value, Normal and Guess. We need
+     * to seperate them apart so that we can store the guessed value in the
+     * history. When we do not guess it should not be needed.
+     *
+     */
+    fn set_square(&mut self, square_id: usize, value: usize, kind: SetKind) -> AnyhowResult<&Self> {
+        self.squares[square_id].set_value(value, kind);
+
+        // Update Line, Column and ABox
+        self.line[self.squares[square_id].line_id].set_taken(value);
+        self.column[self.squares[square_id].column_id].set_taken(value);
+        self.abox[self.squares[square_id].abox_id].set_taken(value);
+
+        Ok(self)
+    }
+
+    /*
      * Puzzle finished
      */
     pub fn complete(&mut self) -> Progress {
@@ -154,6 +175,34 @@ impl Table {
         } else {
             Progress::InProgress(self.iteration)
         }
+    }
+
+    /*
+     * Prepare a snapshot.
+     *
+     */
+    fn snapshot_prepare(&mut self) -> SnapShot {
+        SnapShot {
+            square: self.squares.clone(),
+            line: self.line.clone(),
+            column: self.column.clone(),
+            abox: self.abox.clone(),
+
+            // These values are invalid, they must be set by the 'guess' to the value of
+            // the square we take a guess on.
+            value: 99,
+            square_id: 99,
+        }
+    }
+
+    /*
+     * Store snapshot
+     *
+     */
+    fn snapshot_take(&mut self, snapshot: SnapShot) {
+        self.snapshots.push(snapshot);
+        self.snapshots_taken += 1;
+        log::debug!("[snapshot] Snapshot taken");
     }
 
     /*
@@ -195,7 +244,7 @@ impl Table {
      * and set it to one of them, then we see how it goes ;)
      */
     pub fn qualified_guess(&mut self) -> AnyhowResult<bool> {
-        let mut snapshot = self.prepare_snapshot();
+        let mut snapshot = self.snapshot_prepare();
         let mut update: Option<(usize, usize)> = None;
 
         'outer: for square in self.squares.iter() {
@@ -225,14 +274,15 @@ impl Table {
         }
     }
 
-    fn snapshot_take(&mut self, snapshot: SnapShot) {
-        self.snapshots.push(snapshot);
-        self.snapshots_taken += 1;
-        log::debug!("[snapshot] Snapshot taken");
-    }
-
+    /*
+     * Incompetent Guess
+     *
+     * TODO: Why is this actually needed. Investigate why potentials are missing
+     * on squares in qualified_guess. (test has shown this is used)
+     *
+     */
     pub fn incompetent_guess(&mut self) -> AnyhowResult<bool> {
-        let mut snapshot = self.prepare_snapshot();
+        let mut snapshot = self.snapshot_prepare();
         let mut update: Option<(usize, usize)> = None;
 
         'outer: for square in self.squares.iter() {
@@ -261,7 +311,7 @@ impl Table {
             snapshot.value = value;
 
             self.snapshot_take(snapshot);
-            log::debug!("[guess] Incompetent Guess -> true");
+            println!("[guess] Incompetent Guess -> true");
             Ok(true)
         } else {
             Ok(false)
@@ -327,109 +377,6 @@ impl Table {
     }
 
     /*
-     * Update square Line Column and ABox
-     *
-     * This update inspect all squares and update corrspoinding
-     * values on each struct.
-     *
-     */
-    pub fn update(&mut self) -> AnyhowResult<&mut Self> {
-        self.update_line()?;
-        self.update_column()?;
-        self.update_abox()?;
-        self.update_square_potentials()?;
-        self.update_box_remove_potentials()?;
-        Ok(self)
-    }
-
-    /*
-     * Set a square value
-     *
-     * Once the value have been set, update Line, Column and ABox
-     *
-     * The method support two kinds of set value, Normal and Guess. We need
-     * to seperate them apart so that we can store the guessed value in the
-     * history. When we do not guess it should not be needed.
-     *
-     */
-    fn set_square(&mut self, square_id: usize, value: usize, kind: SetKind) -> AnyhowResult<&Self> {
-        self.squares[square_id].set_value(value, kind);
-
-        // Update Line, Column and ABox
-        self.line[self.squares[square_id].line_id].set_taken(value);
-        self.column[self.squares[square_id].column_id].set_taken(value);
-        self.abox[self.squares[square_id].abox_id].set_taken(value);
-
-        Ok(self)
-    }
-
-    /*
-     * Prepare a snapshot
-     *
-     */
-    fn prepare_snapshot(&mut self) -> SnapShot {
-        SnapShot {
-            square: self.squares.clone(),
-            line: self.line.clone(),
-            column: self.column.clone(),
-            abox: self.abox.clone(),
-            value: 99,
-            square_id: 99,
-        }
-    }
-
-    /*
-     * REFACTOR
-     *
-     * Check what potentials exists for other squares in box
-     * If one potential is unique for this square it must be
-     * set to value
-     */
-    pub fn engine_box(&mut self) -> AnyhowResult<bool> {
-        let mut update: Option<(usize, usize)> = None;
-        'outer: for square in &self.squares {
-            let mut friends_potentials: Vec<usize> = Vec::new();
-            let squares_in_box = self.get_abox(square.abox_id)?.get_square_ids();
-
-            // Ivestigate first
-            for square_id in squares_in_box {
-                if square_id == square.id {
-                    continue;
-                }
-                let friend_square = self.get_square(square_id)?;
-                if let Some(potentials) = friend_square.get_potentials() {
-                    for potential in potentials {
-                        if !friends_potentials.contains(potential) {
-                            friends_potentials.push(*potential)
-                        }
-                    }
-                };
-            }
-
-            if let Some(potentials) = square.get_potentials() {
-                for potential in potentials {
-                    if !friends_potentials.contains(potential) {
-                        update = Some((square.id, *potential));
-                        break 'outer;
-                    }
-                }
-            }
-
-            // Update
-        }
-
-        if update.is_some() {
-            let (id, value) = update.unwrap();
-            self.set_square(id, value, SetKind::NORMAL)?;
-            log::debug!("[engine] engine_box -> true");
-            return Ok(true);
-        }
-
-        log::debug!("[engine] engine_box -> false");
-        Ok(false)
-    }
-
-    /*
      * Update square given on what line,column,box
      *
      */
@@ -491,9 +438,6 @@ impl Table {
         }
 
         if !updates.is_empty() {
-            if updates.len() > 1 {
-                panic!("LINE update > 1");
-            }
             for update in updates {
                 self._update_one_from(update.0, update.1, update.2)?;
             }
@@ -585,6 +529,57 @@ impl Table {
     }
 
     /*
+     * REFACTOR
+     *
+     * Check what potentials exists for other squares in box
+     * If one potential is unique for this square it must be
+     * set to value
+     */
+    pub fn engine_box(&mut self) -> AnyhowResult<bool> {
+        let mut update: Option<(usize, usize)> = None;
+        'outer: for square in &self.squares {
+            let mut friends_potentials: Vec<usize> = Vec::new();
+            let squares_in_box = self.get_abox(square.abox_id)?.get_square_ids();
+
+            // Ivestigate first
+            for square_id in squares_in_box {
+                if square_id == square.id {
+                    continue;
+                }
+                let friend_square = self.get_square(square_id)?;
+                if let Some(potentials) = friend_square.get_potentials() {
+                    for potential in potentials {
+                        if !friends_potentials.contains(potential) {
+                            friends_potentials.push(*potential)
+                        }
+                    }
+                };
+            }
+
+            if let Some(potentials) = square.get_potentials() {
+                for potential in potentials {
+                    if !friends_potentials.contains(potential) {
+                        update = Some((square.id, *potential));
+                        break 'outer;
+                    }
+                }
+            }
+
+            // Update
+        }
+
+        if update.is_some() {
+            let (id, value) = update.unwrap();
+            self.set_square(id, value, SetKind::NORMAL)?;
+            log::debug!("[engine] engine_box -> true");
+            return Ok(true);
+        }
+
+        log::debug!("[engine] engine_box -> false");
+        Ok(false)
+    }
+
+    /*
      * Get reference to ABox given id
      *
      */
@@ -615,6 +610,22 @@ impl Table {
             Some(square) => Ok(square),
             None => Err(anyhow!("No square with id: {_id} found")),
         }
+    }
+
+    /*
+     * Update square Line Column and ABox
+     *
+     * This update inspect all squares and update corrspoinding
+     * values on each struct.
+     *
+     */
+    pub fn update(&mut self) -> AnyhowResult<&mut Self> {
+        self.update_line()?;
+        self.update_column()?;
+        self.update_abox()?;
+        self.update_square_potentials()?;
+        self.update_box_remove_potentials()?;
+        Ok(self)
     }
 
     /*
@@ -897,6 +908,8 @@ impl Table {
      *  - line verification
      *  - column verification
      *  - box verification
+     *
+     *  TODO: Should be possible to merge these methods into one
      *
      */
     fn validate(&mut self) -> AnyhowResult<bool> {

@@ -34,20 +34,33 @@ use singlenum::components::table::draw::draw_table;
 use singlenum::enums::Progress;
 use std::fs::File;
 use std::io::BufReader;
+use walkdir::WalkDir;
 
 fn main() -> AnyhowResult<()> {
     env_logger::init();
     let args: Arguments = Arguments::parse();
 
-    if !args.group.file.exists() {
-        println!("File: {:?} does not exist!", args.group.file);
-    } else {
-        runner(args.group.file, args.attempts)?;
+    if let Some(file) = args.group.file {
+        if !file.exists() {
+            println!("File: {file:?} does not exist!");
+        } else {
+            runner(file, args.attempts)?;
+        }
+    } else if let Some(path) = args.group.path {
+        // Find all puzzle files!
+        for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+            if let Some(extension) = entry.path().extension() {
+                if extension.to_str().unwrap() == "json" {
+                    let a: Utf8PathBuf = Utf8PathBuf::from(entry.path().to_str().unwrap());
+                    runner(a, args.attempts)?;
+                }
+            }
+        }
     }
     Ok(())
 }
 
-fn runner(puzzle: Utf8PathBuf, attempts: i32) -> AnyhowResult<()> {
+fn runner(puzzle: Utf8PathBuf, attempts: i32) -> AnyhowResult<bool> {
     let file = File::open(puzzle)?;
     let reader = BufReader::new(file);
     let puzzle: Vec<usize> = serde_json::from_reader(reader)?;
@@ -60,12 +73,12 @@ fn runner(puzzle: Utf8PathBuf, attempts: i32) -> AnyhowResult<()> {
             Progress::Solved(msg) => {
                 draw_table(&table);
                 println!("Puzzle solved {msg}");
-                break;
+                return Ok(true);
             }
             Progress::LimitReached(msg) => {
                 draw_table(&table);
                 println!("Unable to solve puzzle {msg}");
-                break;
+                return Ok(false);
             }
             Progress::InProgress(iteration) => log::debug!("[iteration] {iteration}"),
         };
@@ -81,5 +94,4 @@ fn runner(puzzle: Utf8PathBuf, attempts: i32) -> AnyhowResult<()> {
             table.snapshot_rollback()?
         }
     }
-    Ok(())
 }

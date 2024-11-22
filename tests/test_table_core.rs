@@ -22,7 +22,7 @@ fn test_01_engine_box_one_left() {
     table.update_abox().unwrap();
 
     let result = table.engine_box_one_left().unwrap();
-    assert_eq!(true, result);
+    assert!(result);
     assert_eq!(table.squares[18].value, 1_usize);
 }
 
@@ -49,7 +49,7 @@ fn test_02_engine_box_one_left() {
     table.update_abox().unwrap();
 
     let result = table.engine_box_one_left().unwrap();
-    assert_eq!(false, result);
+    assert!(!result);
 }
 
 /*
@@ -75,7 +75,7 @@ fn test_01_engine_line_one_left() {
     table.update_line().unwrap();
 
     let result = table.engine_line_one_left().unwrap();
-    assert_eq!(true, result);
+    assert!(result);
     assert_eq!(table.squares[0].value, 8_usize);
 }
 
@@ -102,7 +102,7 @@ fn test_02_engine_line_one_left() {
     table.update_line().unwrap();
 
     let result = table.engine_line_one_left().unwrap();
-    assert_eq!(false, result);
+    assert!(!result);
 }
 
 /*
@@ -139,7 +139,7 @@ fn test_01_engine_column_one_left() {
     table.update_column().unwrap();
 
     let result = table.engine_column_one_left().unwrap();
-    assert_eq!(true, result);
+    assert!(result);
     assert_eq!(table.squares[18].value, 1_usize);
 }
 
@@ -177,7 +177,7 @@ fn test_02_engine_column_one_left() {
     table.update_column().unwrap();
 
     let result = table.engine_column_one_left().unwrap();
-    assert_eq!(false, result);
+    assert!(!result);
 }
 
 /*
@@ -214,7 +214,7 @@ fn test_01_engine_only_one_possible() {
     table.squares[40].potentials = [6].to_vec();
 
     let result = table.engine_only_one_possible().unwrap();
-    assert_eq!(true, result);
+    assert!(result);
     assert_eq!(table.squares[40].value, 6_usize);
 }
 
@@ -253,7 +253,7 @@ fn test_02_engine_only_one_possible() {
     table.squares[40].potentials = [6, 2].to_vec();
 
     let result = table.engine_only_one_possible().unwrap();
-    assert_eq!(false, result);
+    assert!(!result);
 }
 
 /*
@@ -302,6 +302,6 @@ fn test_01_engine_box() {
 
     table.update().unwrap();
     let result = table.engine_box().unwrap();
-    assert_eq!(true, result);
+    assert!(result);
     assert_eq!(table.squares[29].value, 9_usize);
 }
