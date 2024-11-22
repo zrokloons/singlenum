@@ -3,7 +3,11 @@ use crate::components::table;
 /*
  * Draw the Table
  */
-pub fn draw_table(table: &table::core::Table) {
+pub fn draw_table(table: &table::core::Table, draw: bool) {
+    if !draw {
+        return;
+    }
+
     print!("╔═══╤═══╤═══╦═══╤═══╤═══╦═══╤═══╤═══╗");
     let mut c = 0;
     for i in 0..81_usize {
