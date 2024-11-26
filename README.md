@@ -3,6 +3,14 @@
 Singlenum is a Sudoku solver program written in Rust. It uses my own way on how
 to solve a Sudoku, just with somewhat better memory ッ
 
+<!-- markdownlint-disable no-inline-html -->
+<!-- markdownlint-disable no-alt-text -->
+<p align="center">
+  <img width="600" src="singlenum.svg">
+</p>
+<!-- markdownlint-enable no-inline-html -->
+<!-- markdownlint-enable no-alt-text -->
+
 ## Why
 
 Mostly for the purpose of learning Rust, but I also find Sudoku quite fun.

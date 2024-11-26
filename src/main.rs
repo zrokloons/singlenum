@@ -44,7 +44,7 @@ fn main() -> AnyhowResult<()> {
         if !file.exists() {
             println!("File: {file:?} does not exist!");
         } else {
-            runner(file, args.attempts, args.novisual)?;
+            runner(file, args.attempts, args.novisual, args.just_draw)?;
         }
     } else if let Some(path) = args.group.path {
         // Find all puzzle files!
@@ -52,7 +52,7 @@ fn main() -> AnyhowResult<()> {
             if let Some(extension) = entry.path().extension() {
                 if extension.to_str().unwrap() == "json" {
                     let a: Utf8PathBuf = Utf8PathBuf::from(entry.path().to_str().unwrap());
-                    runner(a, args.attempts, args.novisual)?;
+                    runner(a, args.attempts, args.novisual, args.just_draw)?;
                 }
             }
         }
@@ -60,7 +60,12 @@ fn main() -> AnyhowResult<()> {
     Ok(())
 }
 
-fn runner(puzzle: Utf8PathBuf, attempts: i32, novisual: bool) -> AnyhowResult<bool> {
+fn runner(
+    puzzle: Utf8PathBuf,
+    attempts: i32,
+    novisual: bool,
+    just_draw: bool,
+) -> AnyhowResult<bool> {
     let file = File::open(&puzzle)?;
     let reader = BufReader::new(file);
     let layout: Vec<usize> = serde_json::from_reader(reader)?;
@@ -69,6 +74,10 @@ fn runner(puzzle: Utf8PathBuf, attempts: i32, novisual: bool) -> AnyhowResult<bo
 
     println!("{}", &puzzle);
     draw_table(&table, novisual);
+
+    if just_draw {
+        return Ok(true);
+    }
 
     loop {
         match table.complete() {
