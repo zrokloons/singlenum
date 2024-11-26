@@ -311,7 +311,6 @@ impl Table {
             snapshot.value = value;
 
             self.snapshot_take(snapshot);
-            println!("[guess] Incompetent Guess -> true");
             Ok(true)
         } else {
             Ok(false)

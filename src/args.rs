@@ -12,6 +12,10 @@ pub struct Arguments {
     #[arg(global = true, long, action=ArgAction::SetFalse)]
     pub novisual: bool,
 
+    /// Just draw puzzle, don't solve
+    #[arg(long, action=ArgAction::SetTrue)]
+    pub just_draw: bool,
+
     #[clap(flatten)]
     pub group: RequiredOption,
 }
