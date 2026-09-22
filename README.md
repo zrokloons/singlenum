@@ -61,10 +61,11 @@ playback, export, or uniqueness checking.
 The optional GUI uses egui/eframe's OpenGL renderer. Building it requires a
 current stable Rust toolchain and native desktop development libraries; on
 Linux these include X11/Wayland and OpenGL libraries. X11 runtime libraries
-such as `libXcursor.so.1` must also be installed to open the window. The Linux file picker
-uses an XDG desktop portal (a running portal service and file-chooser backend
-are needed); the path field is available without a picker. Windows and macOS
-use their native file pickers. A graphical session is needed to run the GUI.
+such as `libXcursor.so.1` must also be installed to open the window. The Linux
+file picker uses an XDG desktop portal (a running portal service and
+file-chooser backend are needed); the path field is available without a
+picker. Windows and macOS use their native file pickers. A graphical
+session is needed to run the GUI.
 
 ### Development checks
 
