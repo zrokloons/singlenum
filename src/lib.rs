@@ -1,5 +1,6 @@
 pub mod args;
 pub mod enums;
+pub mod solver;
 
 pub mod components {
     pub mod abox;

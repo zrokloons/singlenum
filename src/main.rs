@@ -29,11 +29,8 @@ use anyhow::Result as AnyhowResult;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use singlenum::args::Arguments;
-use singlenum::components::table;
 use singlenum::components::table::draw::draw_table;
-use singlenum::enums::Progress;
-use std::fs::File;
-use std::io::BufReader;
+use singlenum::solver::{solve, Puzzle, SolveStatus};
 use walkdir::WalkDir;
 
 fn main() -> AnyhowResult<()> {
@@ -66,43 +63,22 @@ fn runner(
     novisual: bool,
     just_draw: bool,
 ) -> AnyhowResult<bool> {
-    let file = File::open(&puzzle)?;
-    let reader = BufReader::new(file);
-    let layout: Vec<usize> = serde_json::from_reader(reader)?;
+    let layout = Puzzle::load(puzzle.as_std_path())?;
 
-    let mut table = table::core::Table::new(layout, attempts);
-
-    println!("{}", &puzzle);
-    draw_table(&table, novisual);
+    println!("{puzzle}");
+    draw_table(&layout.table(attempts), novisual);
 
     if just_draw {
         return Ok(true);
     }
 
-    loop {
-        match table.complete() {
-            Progress::Solved(msg) => {
-                draw_table(&table, novisual);
-                println!("Puzzle solved {msg}");
-                return Ok(true);
-            }
-            Progress::LimitReached(msg) => {
-                draw_table(&table, novisual);
-                println!("Unable to solve puzzle {msg}");
-                return Ok(false);
-            }
-            Progress::InProgress(iteration) => log::debug!("[iteration] {iteration}"),
-        };
-
-        // Update line, column, box, and finally squares. Then run Engine to set squares
-        table.update()?;
-        if table.engine()? {
-            continue;
-        }
-
-        // Guess, first a qualified guess, then a somewhat less qualified (incompetent)
-        if !table.qualified_guess()? && !table.incompetent_guess()? {
-            table.snapshot_rollback()?
-        }
+    let result = solve(&layout, attempts)?;
+    draw_table(&result.table, novisual);
+    if result.status == SolveStatus::Solved {
+        println!("Puzzle solved {}", result.message);
+        Ok(true)
+    } else {
+        println!("Unable to solve puzzle {}", result.message);
+        Ok(false)
     }
 }
