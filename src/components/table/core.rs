@@ -216,11 +216,10 @@ impl Table {
      * route again.
      */
     pub fn snapshot_rollback(&mut self) -> AnyhowResult<()> {
-        if self.snapshots.is_empty() {
-            panic!("ERROR, there is no snapshot!");
-        }
-
-        let snapshot = self.snapshots.pop().unwrap();
+        let snapshot = self
+            .snapshots
+            .pop()
+            .ok_or_else(|| anyhow!("No guesses remain to roll back; solver cannot continue"))?;
         log::debug!("[snapshot] Roll back to snapshot");
 
         self.squares = snapshot.square;
@@ -567,8 +566,7 @@ impl Table {
             // Update
         }
 
-        if update.is_some() {
-            let (id, value) = update.unwrap();
+        if let Some((id, value)) = update {
             self.set_square(id, value, SetKind::NORMAL)?;
             log::debug!("[engine] engine_box -> true");
             return Ok(true);
@@ -583,7 +581,7 @@ impl Table {
      *
      */
     fn get_abox(&self, _id: usize) -> AnyhowResult<&ABox> {
-        match self.abox.iter().filter(|x| x._id == _id).last() {
+        match self.abox.iter().rfind(|x| x._id == _id) {
             Some(abox) => Ok(abox),
             None => Err(anyhow!("Unable find abox with id: {_id}")),
         }
@@ -594,7 +592,7 @@ impl Table {
      *
      */
     fn get_square(&self, _id: usize) -> AnyhowResult<&Square> {
-        match self.squares.iter().filter(|x| x.id == _id).last() {
+        match self.squares.iter().rfind(|x| x.id == _id) {
             Some(square) => Ok(square),
             None => Err(anyhow!("No square with id: {_id} found")),
         }
